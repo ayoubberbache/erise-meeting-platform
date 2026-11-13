@@ -1,0 +1,40 @@
+services:
+  # -------------------------------------------------------------
+  # 1. Python Real-Time WebRTC Signaling Service
+  # -------------------------------------------------------------
+  - type: web
+    name: erise-signaling-service
+    runtime: docker
+    dockerfilePath: backend-signaling-python/Dockerfile
+    dockerContext: backend-signaling-python
+    plan: starter
+    region: frankfurt # Low latency for Europe/North Africa
+    envVars:
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # -------------------------------------------------------------
+  # 2. Java 21 Spring Boot Core Meeting & Quota API Service
+  # -------------------------------------------------------------
+  - type: web
+    name: erise-core-service
+    runtime: docker
+    dockerfilePath: backend-core-java/Dockerfile
+    dockerContext: backend-core-java
+    plan: starter
+    region: frankfurt
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: onboarding@resend.dev
+      - key: RESEND_ADMIN_EMAIL
+        value: erise.club@hns-re2sd.dz
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"
+    healthCheckPath: /actuator/health
+    autoDeploy: true
