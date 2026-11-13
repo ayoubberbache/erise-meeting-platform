@@ -20,35 +20,54 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   onStopScreen,
   onLowerHand,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Dynamic ref callback to immediately attach stream upon DOM node creation
+  const setVideoRef = (el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && participant.stream) {
+      if (el.srcObject !== participant.stream) {
+        el.srcObject = participant.stream;
+      }
+      el.play().catch(() => {
+        // Autoplay may wait for user interaction in some browsers
+      });
+    }
+  };
+
+  // Re-synchronize when stream or camera state updates
   useEffect(() => {
     if (videoRef.current && participant.stream) {
-      videoRef.current.srcObject = participant.stream;
+      if (videoRef.current.srcObject !== participant.stream) {
+        videoRef.current.srcObject = participant.stream;
+      }
+      videoRef.current.play().catch(() => {});
     }
-  }, [participant.stream]);
+  }, [participant.stream, participant.is_camera_off]);
+
+  const hasVideoStream = !participant.is_camera_off && Boolean(participant.stream);
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
+      initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      transition={{ duration: 0.25 }}
-      className={`relative rounded-2xl overflow-hidden bg-erise-dark-850 border transition-all duration-300 aspect-video flex items-center justify-center group ${
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.2 }}
+      className={`relative rounded-2xl overflow-hidden bg-[#2d2e30] border transition-all duration-200 aspect-video flex items-center justify-center group ${
         participant.raised_hand
-          ? 'hand-raised-glow border-amber-500'
-          : 'border-slate-800/80 hover:border-erise-500/40 shadow-xl'
+          ? 'ring-2 ring-amber-400 border-amber-400'
+          : 'border-white/10 hover:border-white/20 shadow-lg'
       }`}
     >
       {/* Video stream or Avatar placeholder */}
-      {!participant.is_camera_off && participant.stream ? (
+      {hasVideoStream ? (
         <video
-          ref={videoRef}
+          ref={setVideoRef}
           autoPlay
           playsInline
           muted={participant.is_local} // Mute self to prevent acoustic echo
-          className={`w-full h-full object-cover ${
+          className={`w-full h-full object-cover bg-black ${
             participant.is_local && !participant.is_screen_sharing ? '-scale-x-100' : ''
           }`}
         />
@@ -58,7 +77,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
             <img
               src={participant.avatar_url || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'}
               alt={participant.full_name}
-              className="w-20 h-20 md:w-24 md:h-24 rounded-full border-2 border-erise-500/50 object-cover shadow-2xl bg-erise-dark-900"
+              className="w-20 h-20 md:w-24 md:h-24 rounded-full border-2 border-white/20 object-cover shadow-xl bg-slate-800"
             />
             {participant.role === 'host' && (
               <div className="absolute -bottom-1 -right-1 p-1.5 bg-amber-500 rounded-full text-white shadow">
@@ -66,7 +85,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
               </div>
             )}
           </div>
-          <span className="mt-3 text-sm font-medium text-slate-300 max-w-[150px] truncate">
+          <span className="mt-3 text-sm font-medium text-slate-200 max-w-[150px] truncate">
             {participant.full_name}
           </span>
         </div>
@@ -74,7 +93,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
 
       {/* Screen Sharing Badge Overlay */}
       {participant.is_screen_sharing && (
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-erise-500/90 backdrop-blur-md text-white text-xs font-semibold shadow">
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-erise-600/90 backdrop-blur-md text-white text-xs font-semibold shadow">
           <Monitor className="w-3.5 h-3.5" />
           <span>Screen Sharing</span>
         </div>
@@ -85,7 +104,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         <motion.div
           initial={{ y: -10, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500 text-slate-950 text-xs font-bold shadow-lg"
+          className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400 text-slate-950 text-xs font-bold shadow-lg"
         >
           <Hand className="w-4 h-4 animate-bounce" />
           <span>Raised Hand</span>
@@ -116,7 +135,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         {/* Mic Status */}
         <div
           className={`p-1.5 rounded-lg backdrop-blur-md ${
-            participant.is_muted ? 'bg-rose-500/80 text-white' : 'bg-black/60 text-emerald-400'
+            participant.is_muted ? 'bg-rose-500/90 text-white' : 'bg-black/60 text-emerald-400'
           }`}
         >
           {participant.is_muted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
