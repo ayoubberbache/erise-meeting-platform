@@ -1,226 +1,172 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, UserStatus } from '../types';
 
 interface AuthContextType {
   user: UserProfile | null;
   loading: boolean;
-  signIn: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  signInWithEmail: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
+  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
-  updateStatus: (status: UserStatus, statusMessage?: string) => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
-  isDemoMode: boolean;
 }
-
-const defaultAdminUser: UserProfile = {
-  id: 'erise-admin-001',
-  email: 'erise.club@hns-re2sd.dz',
-  full_name: 'E-RISE Club Admin',
-  avatar_url: 'https://api.dicebear.com/7.x/identicon/svg?seed=erise-club',
-  status: 'online',
-  status_message: 'Broadcasting & Platform Operations',
-  created_at: new Date().toISOString(),
-};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    const saved = localStorage.getItem('erise_user');
-    return saved ? JSON.parse(saved) : defaultAdminUser;
-  });
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-
-    // Supabase auth state listener
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // 1. Check active session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        // Fetch public profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profile) {
-          const loadedUser: UserProfile = {
-            id: profile.id,
-            email: profile.email,
-            full_name: profile.full_name,
-            avatar_url: profile.avatar_url,
-            status: profile.status || 'online',
-            status_message: profile.status_message || '',
-            created_at: profile.created_at,
-          };
-          setUser(loadedUser);
-          localStorage.setItem('erise_user', JSON.stringify(loadedUser));
-        }
+        await loadUserProfile(session.user);
       } else {
-        // fallback to saved local or default
-        const saved = localStorage.getItem('erise_user');
-        if (!saved) {
-          setUser(defaultAdminUser);
-        }
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    // 2. Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await loadUserProfile(session.user);
+      } else {
+        setUser(null);
       }
       setLoading(false);
     });
 
     return () => {
-      authListener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
-  const signIn = async (email: string, password?: string) => {
-    if (!isSupabaseConfigured) {
-      // Demo mode login
-      const newUser: UserProfile = {
-        id: 'usr_' + Math.random().toString(36).substring(2, 9),
-        email,
-        full_name: email.split('@')[0],
-        avatar_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${email}`,
-        status: 'online',
-        status_message: 'Available',
-        created_at: new Date().toISOString(),
-      };
-      setUser(newUser);
-      localStorage.setItem('erise_user', JSON.stringify(newUser));
-      return { success: true };
-    }
-
-    if (!password) {
-      // Magic link
-      const { error } = await supabase.auth.signInWithOtp({ email });
-      if (error) return { success: false, error: error.message };
-      return { success: true };
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { success: false, error: error.message };
-
-    if (data.user) {
+  const loadUserProfile = async (authUser: any) => {
+    try {
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', data.user.id)
+        .eq('id', authUser.id)
         .single();
 
-      if (profile) {
-        const loadedUser: UserProfile = {
-          id: profile.id,
-          email: profile.email,
-          full_name: profile.full_name,
-          avatar_url: profile.avatar_url,
-          status: profile.status || 'online',
-          status_message: profile.status_message || '',
-        };
-        setUser(loadedUser);
-        localStorage.setItem('erise_user', JSON.stringify(loadedUser));
-      }
+      const fullName = profile?.full_name || 
+        authUser.user_metadata?.full_name || 
+        authUser.user_metadata?.name || 
+        authUser.email?.split('@')[0] || 
+        'User';
+
+      const avatarUrl = profile?.avatar_url || 
+        authUser.user_metadata?.avatar_url || 
+        authUser.user_metadata?.picture || 
+        `https://api.dicebear.com/7.x/identicon/svg?seed=${authUser.id}`;
+
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        full_name: fullName,
+        avatar_url: avatarUrl,
+        status: (profile?.status as UserStatus) || 'online',
+        status_message: profile?.status_message || '',
+        created_at: profile?.created_at || authUser.created_at,
+      });
+    } catch {
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+        avatar_url: authUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${authUser.id}`,
+        status: 'online',
+      });
     }
-    return { success: true };
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    if (!isSupabaseConfigured) {
-      const newUser: UserProfile = {
-        id: 'usr_' + Math.random().toString(36).substring(2, 9),
-        email,
-        full_name: fullName,
-        avatar_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${fullName}`,
-        status: 'online',
-        status_message: 'Available',
-        created_at: new Date().toISOString(),
-      };
-      setUser(newUser);
-      localStorage.setItem('erise_user', JSON.stringify(newUser));
-      return { success: true };
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          avatar_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${fullName}`,
+  const signInWithGoogle = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
         },
-      },
-    });
-
-    if (error) return { success: false, error: error.message };
-
-    if (data.user) {
-      const newUser: UserProfile = {
-        id: data.user.id,
-        email: data.user.email || email,
-        full_name: fullName,
-        avatar_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${fullName}`,
-        status: 'online',
-        status_message: 'Available',
-      };
-      setUser(newUser);
-      localStorage.setItem('erise_user', JSON.stringify(newUser));
+      });
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
-    return { success: true };
+  };
+
+  const signInWithEmail = async (email: string, password?: string) => {
+    try {
+      if (!password) {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { success: false, error: error.message };
+      if (data.user) {
+        await loadUserProfile(data.user);
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string, fullName: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            avatar_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(fullName)}`,
+          },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) return { success: false, error: error.message };
+      if (data.user) {
+        await loadUserProfile(data.user);
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
   };
 
   const signOut = async () => {
-    if (isSupabaseConfigured) {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('erise_user');
-  };
-
-  const updateStatus = async (status: UserStatus, statusMessage?: string) => {
-    if (!user) return;
-    const updated: UserProfile = {
-      ...user,
-      status,
-      status_message: statusMessage !== undefined ? statusMessage : user.status_message,
-    };
-    setUser(updated);
-    localStorage.setItem('erise_user', JSON.stringify(updated));
-
-    if (isSupabaseConfigured) {
-      await supabase
-        .from('profiles')
-        .update({
-          status,
-          status_message: updated.status_message,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-    }
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return;
-    const updated: UserProfile = {
-      ...user,
-      ...updates,
-    };
-    setUser(updated);
-    localStorage.setItem('erise_user', JSON.stringify(updated));
+    const nextUser = { ...user, ...updates };
+    setUser(nextUser);
 
-    if (isSupabaseConfigured) {
-      await supabase
-        .from('profiles')
-        .update({
-          full_name: updated.full_name,
-          avatar_url: updated.avatar_url,
-          status: updated.status,
-          status_message: updated.status_message,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-    }
+    await supabase
+      .from('profiles')
+      .update({
+        full_name: nextUser.full_name,
+        avatar_url: nextUser.avatar_url,
+        status: nextUser.status,
+        status_message: nextUser.status_message,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
   };
 
   return (
@@ -228,12 +174,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         loading,
-        signIn,
-        signUp,
+        signInWithGoogle,
+        signInWithEmail,
+        signUpWithEmail,
         signOut,
-        updateStatus,
         updateProfile,
-        isDemoMode: !isSupabaseConfigured,
       }}
     >
       {children}

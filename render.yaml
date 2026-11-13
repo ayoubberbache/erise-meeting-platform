@@ -31,7 +31,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
-        value: onboarding@resend.dev
+        value: no-reply@erise.club
       - key: RESEND_ADMIN_EMAIL
         value: erise.club@hns-re2sd.dz
       - key: CORS_ALLOWED_ORIGINS

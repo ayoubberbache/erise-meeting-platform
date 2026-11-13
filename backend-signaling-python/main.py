@@ -68,7 +68,7 @@ def send_confirmation_email(req: EmailRequest):
         return {"success": True, "message": "Confirmation logged (Free mode)"}
 
     payload = {
-        "from": "E-RISE Platform <onboarding@resend.dev>",
+        "from": "E-RISE Platform <no-reply@erise.club>",
         "to": [req.email],
         "subject": "E-RISE Platform - Account Confirmation",
         "html": f"<p>Welcome to E-RISE Platform, {req.fullName}!</p>"
@@ -94,7 +94,7 @@ def send_meeting_invite(req: EmailRequest):
         return {"success": True, "message": "Invite logged (Free mode)"}
 
     payload = {
-        "from": "E-RISE Platform <onboarding@resend.dev>",
+        "from": "E-RISE Platform <no-reply@erise.club>",
         "to": [req.email],
         "subject": f"Invitation to E-RISE Meeting: {req.meetingTitle}",
         "html": f"<p>You are invited to join <strong>{req.meetingTitle}</strong> (Room: {req.roomCode}, Cap: {req.maxCapacity}).</p>"
