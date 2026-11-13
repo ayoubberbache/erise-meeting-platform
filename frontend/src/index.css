@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  /* Discord style sleek scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+.glass-panel {
+  background: rgba(15, 26, 44, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 131, 143, 0.2);
+}
+
+.glass-panel-glow {
+  background: rgba(17, 28, 45, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 168, 150, 0.35);
+  box-shadow: 0 8px 32px 0 rgba(0, 131, 143, 0.15);
+}
+
+/* Pulsing ring for active speaker */
+.speaker-ring {
+  box-shadow: 0 0 0 3px #00838F, 0 0 20px rgba(0, 131, 143, 0.5);
+}
+
+/* Hand raised glow */
+.hand-raised-glow {
+  animation: handPulse 2s infinite ease-in-out;
+}
+
+@keyframes handPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #f59e0b, 0 0 15px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px #fbbf24, 0 0 25px rgba(245, 158, 11, 0.7);
+  }
+}
