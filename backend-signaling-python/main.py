@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from room_manager import room_manager
 from models import ParticipantState, SignalingMessage
+from security import sanitize_chat_content, validate_room_code
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("erise.main")
@@ -50,6 +51,8 @@ def health_check():
 
 @app.post("/api/rooms")
 def create_room(req: CreateRoomRequest):
+    if not validate_room_code(req.room_code):
+        raise HTTPException(status_code=400, detail="Invalid room code format")
     if req.max_participants < 2 or req.max_participants > 50:
         raise HTTPException(status_code=400, detail="max_participants must be between 2 and 50")
     room = room_manager.create_or_update_room(
@@ -237,7 +240,9 @@ async def websocket_signaling_endpoint(websocket: WebSocket, room_code: str, use
                     })
 
             elif msg_type == "chat_message":
-                # In-meeting chat
+                # In-meeting chat with XSS sanitization
+                raw_content = data.get("content", "")
+                data["content"] = sanitize_chat_content(raw_content)
                 data["timestamp"] = datetime.utcnow().isoformat()
                 data["sender_id"] = user_id
                 await room_manager.broadcast_to_room(room_code, data)
