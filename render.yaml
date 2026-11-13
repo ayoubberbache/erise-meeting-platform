@@ -1,14 +1,14 @@
 services:
   # -------------------------------------------------------------
-  # 1. Python Real-Time WebRTC Signaling Service
+  # 1. Python Real-Time WebRTC Signaling Service (100% Free Plan)
   # -------------------------------------------------------------
   - type: web
     name: erise-signaling-service
     runtime: docker
     dockerfilePath: backend-signaling-python/Dockerfile
     dockerContext: backend-signaling-python
-    plan: starter
-    region: frankfurt # Low latency for Europe/North Africa
+    plan: free
+    region: frankfurt
     envVars:
       - key: PORT
         value: 8000
@@ -16,14 +16,14 @@ services:
     autoDeploy: true
 
   # -------------------------------------------------------------
-  # 2. Java 21 Spring Boot Core Meeting & Quota API Service
+  # 2. Java 21 Spring Boot Core Meeting & Quota API Service (100% Free Plan)
   # -------------------------------------------------------------
   - type: web
     name: erise-core-service
     runtime: docker
     dockerfilePath: backend-core-java/Dockerfile
     dockerContext: backend-core-java
-    plan: starter
+    plan: free
     region: frankfurt
     envVars:
       - key: PORT

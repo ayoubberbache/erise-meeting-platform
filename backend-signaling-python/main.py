@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from room_manager import room_manager
 from models import ParticipantState, SignalingMessage
 from security import sanitize_chat_content, validate_room_code
+import os
+import urllib.request
+import urllib.error
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("erise.main")
@@ -48,6 +51,65 @@ def health_check():
         "active_rooms": len(room_manager.rooms),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+class EmailRequest(BaseModel):
+    email: str
+    fullName: Optional[str] = "E-RISE Member"
+    meetingTitle: Optional[str] = "E-RISE Broadcast Meeting"
+    roomCode: Optional[str] = "erise-live"
+    maxCapacity: Optional[int] = 10
+
+@app.post("/api/email/send-confirmation")
+def send_confirmation_email(req: EmailRequest):
+    resend_api_key = os.environ.get("RESEND_API_KEY", "")
+    if not resend_api_key or "demo" in resend_api_key:
+        logger.info(f"[FREE MOCK RESEND] Confirmation sent to {req.email}")
+        return {"success": True, "message": "Confirmation logged (Free mode)"}
+
+    payload = {
+        "from": "E-RISE Platform <onboarding@resend.dev>",
+        "to": [req.email],
+        "subject": "E-RISE Platform - Account Confirmation",
+        "html": f"<p>Welcome to E-RISE Platform, {req.fullName}!</p>"
+    }
+    try:
+        r = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(r) as resp:
+            return {"success": True, "status": resp.status}
+    except Exception as e:
+        logger.error(f"Resend error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/email/send-invite")
+def send_meeting_invite(req: EmailRequest):
+    resend_api_key = os.environ.get("RESEND_API_KEY", "")
+    if not resend_api_key or "demo" in resend_api_key:
+        logger.info(f"[FREE MOCK RESEND] Meeting invite sent to {req.email}")
+        return {"success": True, "message": "Invite logged (Free mode)"}
+
+    payload = {
+        "from": "E-RISE Platform <onboarding@resend.dev>",
+        "to": [req.email],
+        "subject": f"Invitation to E-RISE Meeting: {req.meetingTitle}",
+        "html": f"<p>You are invited to join <strong>{req.meetingTitle}</strong> (Room: {req.roomCode}, Cap: {req.maxCapacity}).</p>"
+    }
+    try:
+        r = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(r) as resp:
+            return {"success": True, "status": resp.status}
+    except Exception as e:
+        logger.error(f"Resend error: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.post("/api/rooms")
 def create_room(req: CreateRoomRequest):
