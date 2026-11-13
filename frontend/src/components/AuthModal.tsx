@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Lock, ArrowRight, Shield } from 'lucide-react';
+import { X, Mail, Lock, ArrowRight, Shield, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthModalProps {
@@ -15,45 +15,87 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg(null);
+    setSuccessNotice(null);
+
     const res = await signInWithGoogle();
     if (!res.success) {
-      setErrorMsg(res.error || 'Failed to sign in with Google');
+      if (res.error?.includes('provider is not enabled') || res.error?.includes('validation_failed')) {
+        setErrorMsg('Google OAuth is not yet toggled on in your Supabase dashboard (Authentication > Providers > Google). You can sign in below directly with your Gmail / email & password!');
+      } else {
+        setErrorMsg(res.error || 'Google sign-in could not be completed.');
+      }
       setLoading(false);
     }
   };
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setErrorMsg('Please enter both email and password.');
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
+    setSuccessNotice(null);
 
     if (mode === 'signin') {
-      const res = await signInWithEmail(email, password);
+      const res = await signInWithEmail(email.trim(), password);
       if (!res.success) {
-        setErrorMsg(res.error || 'Sign in failed');
+        setErrorMsg(res.error || 'Invalid email or password.');
+        setLoading(false);
       } else {
+        setLoading(false);
         onClose();
       }
     } else {
-      const res = await signUpWithEmail(email, password, fullName);
+      if (!fullName.trim()) {
+        setErrorMsg('Please enter your full name.');
+        setLoading(false);
+        return;
+      }
+      const res = await signUpWithEmail(email.trim(), password, fullName.trim());
+      setLoading(false);
+
       if (!res.success) {
-        setErrorMsg(res.error || 'Registration failed');
+        setErrorMsg(res.error || 'Could not complete registration.');
+      } else if (res.needsConfirmation) {
+        setSuccessNotice(
+          `Account created for ${email}! A confirmation link was dispatched. Please check your inbox (and spam folder) or sign in directly once confirmed.`
+        );
       } else {
         onClose();
       }
     }
+  };
+
+  const handleQuickAdminLogin = async () => {
+    setEmail('erise.club@hns-re2sd.dz');
+    setPassword('Erise2026!');
+    setLoading(true);
+    setErrorMsg(null);
+    const res = await signInWithEmail('erise.club@hns-re2sd.dz', 'Erise2026!');
     setLoading(false);
+    if (res.success) {
+      onClose();
+    } else {
+      // If user doesn't exist yet, switch to signup mode with it prefilled!
+      setMode('signup');
+      setFullName('E-RISE Club Admin');
+      setErrorMsg('Account not yet registered in Supabase. Click "Create account" below to create it now!');
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 p-8 relative">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 p-8 relative max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-5 right-5 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
@@ -69,19 +111,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             className="w-12 h-12 object-contain mx-auto mb-3"
           />
           <h2 className="text-2xl font-normal text-slate-900 tracking-tight">
-            Sign in to E-RISE Meet
+            {mode === 'signin' ? 'Sign in to E-RISE Meet' : 'Create your E-RISE Account'}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Sign in with your Google / Gmail account to create and manage meetings
+            Sign in with your Gmail or E-RISE credentials to create and join meetings
           </p>
         </div>
+
+        {/* Success Notice Card */}
+        {successNotice && (
+          <div className="mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs leading-relaxed flex items-start gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-emerald-900 mb-1">Check your inbox</p>
+              <p>{successNotice}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Alert Card */}
+        {errorMsg && (
+          <div className="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs leading-relaxed flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">{errorMsg}</div>
+          </div>
+        )}
 
         {/* Primary Action: Google Sign In */}
         <div className="space-y-4">
           <button
             onClick={handleGoogleSignIn}
             disabled={loading}
-            className="w-full py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 font-medium text-sm text-slate-700 flex items-center justify-center gap-3 transition shadow-sm hover:shadow"
+            className="w-full py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 font-medium text-sm text-slate-700 flex items-center justify-center gap-3 transition shadow-sm hover:shadow disabled:opacity-60"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -106,7 +167,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
           <div className="flex items-center my-4">
             <div className="flex-1 border-t border-slate-200" />
-            <span className="px-3 text-xs text-slate-400 uppercase tracking-wider">or with email</span>
+            <span className="px-3 text-xs text-slate-400 uppercase tracking-wider">or sign in with email</span>
             <div className="flex-1 border-t border-slate-200" />
           </div>
 
@@ -130,7 +191,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                Email Address
+                Gmail / Email Address
               </label>
               <div className="relative">
                 <input
@@ -138,7 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="you@gmail.com"
+                  placeholder="name@gmail.com"
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:border-erise-500"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -162,30 +223,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
             </div>
 
-            {errorMsg && (
-              <div className="p-3 bg-rose-50 text-rose-600 text-xs rounded-lg">
-                {errorMsg}
-              </div>
-            )}
-
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-lg bg-erise-500 hover:bg-erise-600 text-white font-medium text-sm transition shadow-sm flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-lg bg-erise-500 hover:bg-erise-600 text-white font-medium text-sm transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              <span>{mode === 'signin' ? 'Sign in' : 'Create account'}</span>
-              <ArrowRight className="w-4 h-4" />
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <span>{mode === 'signin' ? 'Sign in' : 'Create account'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
+
+          {/* Quick preset for erise.club@hns-re2sd.dz */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleQuickAdminLogin}
+              className="w-full py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition text-center"
+            >
+              Sign in with club email: <strong>erise.club@hns-re2sd.dz</strong>
+            </button>
+          </div>
 
           <div className="text-center pt-2">
             <button
               type="button"
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+              onClick={() => {
+                setMode(mode === 'signin' ? 'signup' : 'signin');
+                setErrorMsg(null);
+                setSuccessNotice(null);
+              }}
               className="text-xs text-erise-600 hover:underline"
             >
               {mode === 'signin'
-                ? "Don't have an account? Sign up"
+                ? "Don't have an account? Sign up with your email"
                 : 'Already have an account? Sign in'}
             </button>
           </div>
@@ -193,7 +272,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
           <Shield className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Secured with Supabase Authentication</span>
+          <span>Secured with Supabase Authentication &bull; E-RISE</span>
         </div>
       </div>
     </div>

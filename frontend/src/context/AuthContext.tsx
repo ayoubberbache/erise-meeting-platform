@@ -7,7 +7,7 @@ interface AuthContextType {
   loading: boolean;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signInWithEmail: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
-  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>;
+  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string; needsConfirmation?: boolean }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
 }
@@ -19,7 +19,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // 1. Check active session
+    // 1. Check active Supabase session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         await loadUserProfile(session.user);
@@ -61,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const avatarUrl = profile?.avatar_url || 
         authUser.user_metadata?.avatar_url || 
         authUser.user_metadata?.picture || 
-        `https://api.dicebear.com/7.x/identicon/svg?seed=${authUser.id}`;
+        `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(authUser.id)}`;
 
       setUser({
         id: authUser.id,
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: authUser.id,
         email: authUser.email || '',
         full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
-        avatar_url: authUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${authUser.id}`,
+        avatar_url: authUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(authUser.id)}`,
         status: 'online',
       });
     }
@@ -89,10 +89,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         provider: 'google',
         options: {
           redirectTo: window.location.origin,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'select_account',
-          },
         },
       });
       if (error) return { success: false, error: error.message };
@@ -137,11 +133,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           emailRedirectTo: window.location.origin,
         },
       });
+
       if (error) return { success: false, error: error.message };
-      if (data.user) {
+
+      if (data.session && data.user) {
+        // Auto-confirmed session
         await loadUserProfile(data.user);
+        return { success: true, needsConfirmation: false };
       }
-      return { success: true };
+
+      // Supabase created user but requires email verification click
+      return { success: true, needsConfirmation: true };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -157,16 +159,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const nextUser = { ...user, ...updates };
     setUser(nextUser);
 
-    await supabase
-      .from('profiles')
-      .update({
-        full_name: nextUser.full_name,
-        avatar_url: nextUser.avatar_url,
-        status: nextUser.status,
-        status_message: nextUser.status_message,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', user.id);
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          full_name: nextUser.full_name,
+          avatar_url: nextUser.avatar_url,
+          status: nextUser.status,
+          status_message: nextUser.status_message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+    } catch (e) {
+      console.warn('Profile update error:', e);
+    }
   };
 
   return (

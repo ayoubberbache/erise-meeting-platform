@@ -31,11 +31,11 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
-        value: no-reply@erise.club
+        value: onboarding@resend.dev
       - key: RESEND_ADMIN_EMAIL
         value: erise.club@hns-re2sd.dz
       - key: CORS_ALLOWED_ORIGINS
-        value: "*"
+        value: "https://erise-meeting.web.app,https://erise-meeting-platform.vercel.app,http://localhost:5173"
     healthCheckPath: /actuator/health
     autoDeploy: true
 

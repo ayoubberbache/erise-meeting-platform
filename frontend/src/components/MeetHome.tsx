@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Video, Keyboard, Plus, Shield, Users, ArrowRight, Sparkles } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Video, Keyboard, Plus, Shield, Settings } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface MeetHomeProps {
@@ -19,6 +19,8 @@ export const MeetHome: React.FC<MeetHomeProps> = ({
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [customTitle, setCustomTitle] = useState('E-RISE Live Meeting');
   const [maxParticipants, setMaxParticipants] = useState<number>(10);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,9 +29,21 @@ export const MeetHome: React.FC<MeetHomeProps> = ({
       return;
     }
     const cleanCode = meetingCode.trim().toLowerCase().replace(/^https?:\/\/.*\/meet\//, '');
-    if (cleanCode) {
-      onJoinMeeting(cleanCode);
+    if (!cleanCode) {
+      setInputError('Please enter a meeting code or link');
+      inputRef.current?.focus();
+      return;
     }
+    setInputError(null);
+    onJoinMeeting(cleanCode);
+  };
+
+  const handleNewMeetingClick = () => {
+    if (!user) {
+      onOpenSignIn();
+      return;
+    }
+    setShowNewMeetingMenu(!showNewMeetingMenu);
   };
 
   const handleInstantMeeting = () => {
@@ -49,125 +63,134 @@ export const MeetHome: React.FC<MeetHomeProps> = ({
   };
 
   return (
-    <main className="flex-1 max-w-7xl mx-auto px-6 py-12 lg:py-20 flex flex-col lg:flex-row items-center justify-between gap-12">
-      {/* Left Column: Meeting Actions & Text */}
+    <main className="flex-1 max-w-7xl mx-auto px-6 py-12 lg:py-20 flex flex-col lg:flex-row items-center justify-between gap-12 select-none">
+      {/* Left Column: Meeting Actions & Hero */}
       <div className="w-full lg:max-w-xl space-y-8 text-center lg:text-left">
         <div className="space-y-4">
           <h1 className="text-4xl sm:text-5xl font-normal text-slate-900 tracking-tight leading-tight">
             Premium video meetings. Now free for everyone.
           </h1>
           <p className="text-lg text-slate-600 leading-relaxed max-w-lg mx-auto lg:mx-0">
-            We built E-RISE Meet for secure, low-latency group conferences and broadcasts. Simple, host-controlled, and available for all.
+            We built E-RISE Meet for secure, low-latency group conferences and broadcasts. Simple, host-controlled, and free for all.
           </p>
         </div>
 
-        {/* Authentication Wall / Meeting Controls */}
-        {!user ? (
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-4 text-center lg:text-left">
-            <div className="flex items-center gap-3 justify-center lg:justify-start">
-              <div className="w-10 h-10 rounded-full bg-erise-50 flex items-center justify-center text-erise-600">
-                <Users className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-slate-800">Sign in to get started</h3>
-                <p className="text-xs text-slate-500">Sign in with your Gmail or E-RISE account to create or join meetings</p>
-              </div>
-            </div>
+        {/* Action Controls */}
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+            {/* New Meeting Button */}
+            <div className="relative w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleNewMeetingClick}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-erise-500 hover:bg-erise-600 text-white font-medium text-sm transition shadow-sm active:scale-95"
+              >
+                <Video className="w-5 h-5" />
+                <span>New meeting</span>
+              </button>
 
-            <button
-              onClick={onOpenSignIn}
-              className="w-full sm:w-auto px-6 py-3 rounded-full bg-erise-500 hover:bg-erise-600 text-white font-medium text-sm transition shadow-sm flex items-center justify-center gap-2 mx-auto lg:mx-0"
-            >
-              <span>Sign in with Google / Email</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-              {/* New Meeting Dropdown Button */}
-              <div className="relative w-full sm:w-auto">
-                <button
-                  onClick={() => setShowNewMeetingMenu(!showNewMeetingMenu)}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-erise-500 hover:bg-erise-600 text-white font-medium text-sm transition shadow-sm"
-                >
-                  <Video className="w-4 h-4" />
-                  <span>New meeting</span>
-                </button>
+              {/* Dropdown Menu */}
+              {showNewMeetingMenu && (
+                <div className="absolute left-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-40 text-left">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewMeetingMenu(false);
+                      handleInstantMeeting();
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition"
+                  >
+                    <Plus className="w-4 h-4 text-erise-600" />
+                    <div>
+                      <div className="font-medium text-slate-800">Start an instant meeting</div>
+                      <div className="text-xs text-slate-500">10-person capacity</div>
+                    </div>
+                  </button>
 
-                {showNewMeetingMenu && (
-                  <div className="absolute left-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-40">
-                    <button
-                      onClick={() => {
-                        setShowNewMeetingMenu(false);
-                        handleInstantMeeting();
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition"
-                    >
-                      <Plus className="w-4 h-4 text-erise-600" />
-                      <div>
-                        <div className="font-medium text-slate-800">Start an instant meeting</div>
-                        <div className="text-xs text-slate-500">Standard 10-person room</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setShowNewMeetingMenu(false);
-                        setShowConfigModal(true);
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition"
-                    >
-                      <Sparkles className="w-4 h-4 text-erise-600" />
-                      <div>
-                        <div className="font-medium text-slate-800">Custom capacity meeting</div>
-                        <div className="text-xs text-slate-500">Configure participant limit & title</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Enter a Code Form */}
-              <form onSubmit={handleJoin} className="flex items-center gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
-                  <input
-                    type="text"
-                    value={meetingCode}
-                    onChange={(e) => setMeetingCode(e.target.value)}
-                    placeholder="Enter a code or link"
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 focus:border-erise-500 focus:ring-1 focus:ring-erise-500 text-sm text-slate-800 placeholder-slate-400 focus:outline-none transition"
-                  />
-                  <Keyboard className="w-5 h-5 text-slate-400 absolute left-3 top-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewMeetingMenu(false);
+                      setShowConfigModal(true);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition"
+                  >
+                    <Settings className="w-4 h-4 text-erise-600" />
+                    <div>
+                      <div className="font-medium text-slate-800">Set participant quota</div>
+                      <div className="text-xs text-slate-500">Choose capacity (2 to 30) &amp; title</div>
+                    </div>
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  disabled={!meetingCode.trim()}
-                  className="px-5 py-3 rounded-lg text-sm font-medium text-erise-600 hover:bg-erise-50 disabled:text-slate-400 disabled:hover:bg-transparent transition"
-                >
-                  Join
-                </button>
-              </form>
+              )}
             </div>
 
-            <p className="text-xs text-slate-500">
-              Signed in as <strong>{user.full_name}</strong> ({user.email})
-            </p>
+            {/* Enter a Code Form */}
+            <form onSubmit={handleJoin} className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={meetingCode}
+                  onChange={(e) => {
+                    setMeetingCode(e.target.value);
+                    if (inputError) setInputError(null);
+                  }}
+                  placeholder="Enter a code or link"
+                  className={`w-full pl-10 pr-4 py-3.5 rounded-lg border text-sm text-slate-800 placeholder-slate-400 focus:outline-none transition ${
+                    inputError
+                      ? 'border-rose-400 ring-1 ring-rose-400'
+                      : 'border-slate-300 focus:border-erise-500 focus:ring-1 focus:ring-erise-500'
+                  }`}
+                />
+                <Keyboard className="w-5 h-5 text-slate-400 absolute left-3 top-4 pointer-events-none" />
+              </div>
+              <button
+                type="submit"
+                className="px-5 py-3.5 rounded-lg text-sm font-semibold text-erise-600 hover:bg-erise-50 transition active:scale-95"
+              >
+                Join
+              </button>
+            </form>
           </div>
-        )}
+
+          {inputError && (
+            <p className="text-xs text-rose-600 font-medium text-center lg:text-left">
+              {inputError}
+            </p>
+          )}
+
+          {user ? (
+            <div className="flex items-center gap-2 justify-center lg:justify-start text-xs text-slate-500">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Signed in as <strong>{user.full_name}</strong> ({user.email})</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 justify-center lg:justify-start text-xs text-slate-500">
+              <span>Sign in required before creating or joining meetings.</span>
+              <button
+                type="button"
+                onClick={onOpenSignIn}
+                className="text-erise-600 font-semibold hover:underline"
+              >
+                Sign in now &rarr;
+              </button>
+            </div>
+          )}
+        </div>
 
         <hr className="border-slate-200" />
 
         <div className="flex items-center gap-2 text-xs text-slate-500 justify-center lg:justify-start">
           <Shield className="w-4 h-4 text-emerald-600" />
-          <span>Encrypted with DTLS-SRTP &bull; <a href="#learn-more" className="text-erise-600 hover:underline">Learn more about E-RISE Meet security</a></span>
+          <span>All meetings protected with DTLS-SRTP encryption</span>
         </div>
       </div>
 
       {/* Right Column: Google Meet Classic Illustration Graphic */}
       <div className="w-full lg:max-w-md flex flex-col items-center">
         <div className="w-full bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col items-center text-center space-y-6">
-          <div className="w-48 h-48 rounded-full bg-slate-100 flex items-center justify-center p-6">
+          <div className="w-44 h-44 rounded-full bg-slate-50 flex items-center justify-center p-6 border border-slate-100">
             <img
               src="/erise-logo.png"
               alt="E-RISE"
@@ -180,23 +203,23 @@ export const MeetHome: React.FC<MeetHomeProps> = ({
               Get a link you can share
             </h3>
             <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
-              Click <strong>New meeting</strong> to get a link you can send to people you want to meet with.
+              Click <strong>New meeting</strong> to get a secure link you can send to people you want to meet with.
             </p>
           </div>
 
           {/* Dots Indicator */}
           <div className="flex items-center gap-1.5 pt-2">
             <span className="w-2 h-2 rounded-full bg-erise-500" />
-            <span className="w-2 h-2 rounded-full bg-slate-300" />
-            <span className="w-2 h-2 rounded-full bg-slate-300" />
+            <span className="w-2 h-2 rounded-full bg-slate-200" />
+            <span className="w-2 h-2 rounded-full bg-slate-200" />
           </div>
         </div>
       </div>
 
       {/* Custom Meeting Modal (Allows configuring participant limit) */}
       {showConfigModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 p-6 space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5">
             <h3 className="text-lg font-semibold text-slate-800">Configure Meeting</h3>
 
             <form onSubmit={handleCustomMeetingSubmit} className="space-y-4">
@@ -236,7 +259,7 @@ export const MeetHome: React.FC<MeetHomeProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowConfigModal(false)}
