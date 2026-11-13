@@ -1,0 +1,10 @@
+{
+  "name": "erise-meeting-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "E-RISE Platform - Hybrid Discord and Google Meet Broadcasting Platform",
+  "scripts": {
+    "build": "node build.js",
+    "start": "node build.js"
+  }
+}
