@@ -130,20 +130,30 @@ export const MeetingStage: React.FC<MeetingStageProps> = ({
           /* Spotlight presentation view */
           <div className="w-full h-full flex flex-col md:flex-row gap-4">
             <div className="flex-1 bg-black rounded-2xl overflow-hidden relative flex items-center justify-center border border-white/10">
-              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-lg bg-black/70 text-white text-xs font-semibold">
-                Screen: {screenSharer.full_name}
+              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-lg bg-black/70 text-white text-xs font-semibold flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Screen: {screenSharer.full_name} {screenSharer.is_local && '(You)'}</span>
               </div>
               {screenSharer.stream ? (
                 <video
                   autoPlay
                   playsInline
+                  muted={screenSharer.is_local}
                   ref={(el) => {
-                    if (el && screenSharer.stream) el.srcObject = screenSharer.stream;
+                    if (el && screenSharer.stream) {
+                      if (el.srcObject !== screenSharer.stream) {
+                        el.srcObject = screenSharer.stream;
+                      }
+                      el.play().catch(() => {});
+                    }
                   }}
                   className="w-full h-full object-contain"
                 />
               ) : (
-                <div className="text-slate-400 text-sm">Presenting screen...</div>
+                <div className="flex flex-col items-center justify-center gap-2 text-slate-400 text-sm">
+                  <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <span>Loading presentation stream...</span>
+                </div>
               )}
             </div>
 
