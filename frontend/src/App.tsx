@@ -4,6 +4,7 @@ import { MeetNavbar } from './components/MeetNavbar';
 import { MeetHome } from './components/MeetHome';
 import { MeetingStage } from './components/MeetingStage';
 import { AuthModal } from './components/AuthModal';
+import { supabase } from './lib/supabase';
 
 export const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
@@ -23,12 +24,24 @@ export const AppContent: React.FC = () => {
     const initialCode = roomParam || (pathMatch ? pathMatch[1] : null);
 
     if (initialCode && user) {
-      setActiveMeeting({
-        roomCode: initialCode,
-        title: 'E-RISE Meeting',
-        maxParticipants: 10,
-        isHost: false,
-      });
+      supabase
+        .from('meetings')
+        .select('is_ended, title, max_participants')
+        .eq('room_code', initialCode)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.is_ended) {
+            alert('This meeting has already ended.');
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          setActiveMeeting({
+            roomCode: initialCode,
+            title: data?.title || 'E-RISE Meeting',
+            maxParticipants: data?.max_participants || 10,
+            isHost: false,
+          });
+        });
     }
   }, [user]);
 
@@ -45,17 +58,38 @@ export const AppContent: React.FC = () => {
     });
   };
 
-  const handleJoinMeeting = (roomCode: string) => {
+  const handleJoinMeeting = async (roomCode: string) => {
     if (!user) {
       setIsAuthModalOpen(true);
       return;
     }
-    setActiveMeeting({
-      roomCode,
-      title: 'E-RISE Live Call',
-      maxParticipants: 10,
-      isHost: false,
-    });
+
+    try {
+      const { data: meeting } = await supabase
+        .from('meetings')
+        .select('is_ended, title, max_participants')
+        .eq('room_code', roomCode)
+        .maybeSingle();
+
+      if (meeting?.is_ended) {
+        alert('This meeting has already ended and is no longer active.');
+        return;
+      }
+
+      setActiveMeeting({
+        roomCode,
+        title: meeting?.title || 'E-RISE Meeting',
+        maxParticipants: meeting?.max_participants || 10,
+        isHost: false,
+      });
+    } catch {
+      setActiveMeeting({
+        roomCode,
+        title: 'E-RISE Meeting',
+        maxParticipants: 10,
+        isHost: false,
+      });
+    }
   };
 
   if (loading) {

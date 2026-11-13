@@ -30,7 +30,7 @@ export const ParticipantsDrawer: React.FC<ParticipantsDrawerProps> = ({
   const raisedHands = participants.filter((p) => p.raised_hand);
 
   return (
-    <div className="fixed top-0 right-0 bottom-20 w-80 md:w-96 bg-white border-l border-slate-200 shadow-2xl z-40 flex flex-col">
+    <div className="fixed inset-0 sm:top-0 sm:left-auto sm:right-0 sm:bottom-20 w-full sm:w-80 md:w-96 bg-white sm:border-l border-slate-200 shadow-2xl z-50 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-100">
         <div>

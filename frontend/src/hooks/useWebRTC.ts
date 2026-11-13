@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Participant, UserProfile } from '../types';
+import { Participant, UserProfile, ChatMessage } from '../types';
 import { rtcConfiguration, getMediaStream, getDisplayMediaStream } from '../lib/webrtc';
 import { supabase } from '../lib/supabase';
 
@@ -9,6 +9,7 @@ interface UseWebRTCOptions {
   isHost: boolean;
   maxParticipants?: number;
   onError?: (msg: string) => void;
+  onSessionTerminated?: (reason: string) => void;
 }
 
 export function useWebRTC({
@@ -17,6 +18,7 @@ export function useWebRTC({
   isHost,
   maxParticipants = 10,
   onError,
+  onSessionTerminated,
 }: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
@@ -25,6 +27,7 @@ export function useWebRTC({
   const [isScreenSharing, setIsScreenSharing] = useState<boolean>(false);
   const [isHandRaised, setIsHandRaised] = useState<boolean>(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [roomError, setRoomError] = useState<string | null>(null);
 
@@ -117,31 +120,38 @@ export function useWebRTC({
         }
       };
 
-      // Handle incoming remote media tracks and store permanently in remoteStreamsRef
+      // Handle incoming remote media tracks and trigger cloned stream reference for React re-render
       pc.ontrack = (event) => {
         let stream = remoteStreamsRef.current.get(targetUserId);
         if (!stream) {
           stream = event.streams[0] || new MediaStream();
-          remoteStreamsRef.current.set(targetUserId, stream);
         }
 
-        // Add track if not already in stream
         if (!stream.getTracks().some((t) => t.id === event.track.id)) {
           stream.addTrack(event.track);
         }
 
-        const persistentStream = stream;
+        // Clone into fresh MediaStream object so React state reference updates and <video>/<audio> rebind
+        const freshStream = new MediaStream(stream.getTracks());
+        remoteStreamsRef.current.set(targetUserId, freshStream);
+
         setParticipants((prev) =>
           prev.map((p) =>
-            p.user_id === targetUserId ? { ...p, stream: persistentStream } : p
+            p.user_id === targetUserId
+              ? {
+                  ...p,
+                  stream: freshStream,
+                  is_camera_off: freshStream.getVideoTracks().length === 0,
+                }
+              : p
           )
         );
       };
 
-      // Auto-recover from network drops / ICE disconnects
+      // Auto-recover from network drops / ICE disconnects across different places
       pc.oniceconnectionstatechange = () => {
         if (pc.iceConnectionState === 'failed') {
-          console.warn(`ICE connection failed with ${targetUserId}, attempting ICE restart...`);
+          console.warn(`ICE connection failed with ${targetUserId}, restarting ICE...`);
           pc.restartIce();
         }
       };
@@ -151,7 +161,7 @@ export function useWebRTC({
     [user.id]
   );
 
-  // Send SDP Offer to a peer (called only when introducing a new connection)
+  // Send SDP Offer to a peer
   const sendOfferToPeer = useCallback(
     async (targetUserId: string) => {
       try {
@@ -190,6 +200,61 @@ export function useWebRTC({
     async function startMeetingSession() {
       await initLocalStream();
 
+      // Check if meeting was already ended in database
+      try {
+        const { data: mCheck } = await supabase
+          .from('meetings')
+          .select('is_ended')
+          .eq('room_code', roomCode)
+          .maybeSingle();
+
+        if (mCheck?.is_ended) {
+          if (onSessionTerminated) {
+            onSessionTerminated('This meeting has ended and is no longer available.');
+          }
+          return;
+        }
+      } catch {}
+
+      // Load past chat messages from database
+      try {
+        const { data: meeting } = await supabase
+          .from('meetings')
+          .select('id')
+          .eq('room_code', roomCode)
+          .maybeSingle();
+
+        if (meeting?.id) {
+          const { data: msgs } = await supabase
+            .from('chat_messages')
+            .select(`
+              id,
+              sender_id,
+              content,
+              created_at,
+              profiles:sender_id (full_name, avatar_url)
+            `)
+            .eq('meeting_id', meeting.id)
+            .order('created_at', { ascending: true });
+
+          if (msgs && isMounted) {
+            setChatMessages(
+              msgs.map((m: any) => ({
+                id: m.id,
+                room_code: roomCode,
+                sender_id: m.sender_id,
+                sender_name: m.profiles?.full_name || 'Participant',
+                sender_avatar: m.profiles?.avatar_url,
+                content: m.content,
+                created_at: m.created_at,
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('Chat history load notice:', err);
+      }
+
       // Subscribe to Supabase Realtime Channel dedicated to this roomCode
       const channel = supabase.channel(`meet_${roomCode}`, {
         config: {
@@ -200,13 +265,13 @@ export function useWebRTC({
 
       channelRef.current = channel;
 
-      // 1. Presence Sync: tracks participant entries, leaves, and state changes
+      // 1. Presence Sync
       channel.on('presence', { event: 'sync' }, () => {
         if (!isMounted) return;
         const presenceState = channel.presenceState();
         const activeUsers: Participant[] = [];
 
-        // Always include self with local stream
+        // Self with local stream
         activeUsers.push({
           user_id: user.id,
           full_name: user.full_name,
@@ -220,14 +285,12 @@ export function useWebRTC({
           stream: localStreamRef.current || undefined,
         });
 
-        // Loop over presence entries
+        // Remote participants
         Object.keys(presenceState).forEach((key) => {
           if (key === user.id) return;
           const userPresences = presenceState[key] as any[];
           if (userPresences && userPresences.length > 0) {
             const remoteUser = userPresences[0];
-
-            // Always read stream from persistent remoteStreamsRef cache
             const cachedStream = remoteStreamsRef.current.get(remoteUser.user_id);
 
             activeUsers.push({
@@ -244,8 +307,7 @@ export function useWebRTC({
               stream: cachedStream,
             });
 
-            // Initiate connection ONLY if peer connection does not exist yet!
-            // This prevents duplicate offers on every presence update (which caused disconnections!)
+            // Initiate offer ONLY if peer connection does not exist yet
             const existingPc = peerConnections.current.get(remoteUser.user_id);
             if (!existingPc || existingPc.connectionState === 'failed') {
               if (isHost || user.id < remoteUser.user_id) {
@@ -255,7 +317,7 @@ export function useWebRTC({
           }
         });
 
-        // Clean up connections for peers who left the room
+        // Clean up connections for peers who left
         peerConnections.current.forEach((pc, peerId) => {
           if (!activeUsers.some((u) => u.user_id === peerId)) {
             pc.close();
@@ -265,7 +327,6 @@ export function useWebRTC({
           }
         });
 
-        // Enforce maximum participant capacity
         if (activeUsers.length > maxParticipants) {
           const errText = `Room capacity of ${maxParticipants} reached.`;
           setRoomError(errText);
@@ -277,7 +338,7 @@ export function useWebRTC({
         setParticipants(activeUsers);
       });
 
-      // 2. WebRTC Signaling Broadcast with Perfect Negotiation Pattern
+      // 2. WebRTC Signaling Broadcast
       channel.on('broadcast', { event: 'webrtc-signal' }, async ({ payload }: any) => {
         if (!isMounted || payload.target_id !== user.id) return;
 
@@ -290,12 +351,8 @@ export function useWebRTC({
               pc.signalingState !== 'stable' ||
               makingOfferRef.current.get(payload.sender_id);
 
-            // Glare resolution: impolite peer rejects offer collision
             if (isColliding) {
-              if (!isPolite) {
-                return;
-              }
-              // Polite peer rolls back
+              if (!isPolite) return;
               await pc.setLocalDescription({ type: 'rollback' });
             }
 
@@ -329,7 +386,6 @@ export function useWebRTC({
                   console.warn('addIceCandidate notice:', e);
                 }
               } else {
-                // Buffer ICE candidates until remote description arrives
                 const queue = iceCandidateQueue.current.get(payload.sender_id) || [];
                 queue.push(payload.candidate);
                 iceCandidateQueue.current.set(payload.sender_id, queue);
@@ -341,7 +397,30 @@ export function useWebRTC({
         }
       });
 
-      // 3. Host Remote Actions
+      // 3. Realtime In-Call Chat Broadcast (Instant cross-user delivery!)
+      channel.on('broadcast', { event: 'chat-message' }, ({ payload }: any) => {
+        if (!isMounted) return;
+        const incomingMsg: ChatMessage = {
+          id: payload.id || 'msg-' + Date.now(),
+          room_code: roomCode,
+          sender_id: payload.sender_id,
+          sender_name: payload.sender_name || 'Participant',
+          sender_avatar: payload.sender_avatar,
+          content: payload.content,
+          created_at: payload.created_at || new Date().toISOString(),
+        };
+        setChatMessages((prev) => [...prev, incomingMsg]);
+      });
+
+      // 4. Session Termination Broadcast (Host ends meeting for everyone)
+      channel.on('broadcast', { event: 'session-terminated' }, ({ payload }: any) => {
+        if (!isMounted) return;
+        if (onSessionTerminated) {
+          onSessionTerminated(payload?.reason || 'The host has ended the meeting for everyone.');
+        }
+      });
+
+      // 5. Host Remote Actions
       channel.on('broadcast', { event: 'host-action' }, ({ payload }: any) => {
         if (!isMounted) return;
         if (payload.target_id === user.id) {
@@ -411,6 +490,92 @@ export function useWebRTC({
     },
     [channelRef, isConnected, user, isHost, isMuted, isCameraOff, isScreenSharing, isHandRaised]
   );
+
+  // Send in-call chat message (Delivers instantly to all users via Broadcast & persists to DB)
+  const sendChatMessage = async (content: string) => {
+    if (!content.trim()) return;
+
+    const newMsg: ChatMessage = {
+      id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      room_code: roomCode,
+      sender_id: user.id,
+      sender_name: user.full_name,
+      sender_avatar: user.avatar_url,
+      content: content.trim(),
+      created_at: new Date().toISOString(),
+    };
+
+    // 1. Local append
+    setChatMessages((prev) => [...prev, newMsg]);
+
+    // 2. Realtime Broadcast to all connected participants
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'chat-message',
+        payload: newMsg,
+      });
+    }
+
+    // 3. Persist to Supabase Database
+    try {
+      const { data: meeting } = await supabase
+        .from('meetings')
+        .select('id')
+        .eq('room_code', roomCode)
+        .maybeSingle();
+
+      let meetingId = meeting?.id;
+      if (!meetingId) {
+        const { data: createdMeeting } = await supabase
+          .from('meetings')
+          .insert({
+            title: 'E-RISE Meeting',
+            room_code: roomCode,
+            host_id: user.id,
+            max_participants: maxParticipants,
+            is_locked: false,
+            is_ended: false,
+          })
+          .select('id')
+          .maybeSingle();
+        meetingId = createdMeeting?.id;
+      }
+
+      if (meetingId) {
+        await supabase.from('chat_messages').insert({
+          meeting_id: meetingId,
+          sender_id: user.id,
+          content: content.trim(),
+        });
+      }
+    } catch (e) {
+      console.warn('DB chat persistence note:', e);
+    }
+  };
+
+  // Terminate meeting for all participants (Admin/Host action)
+  const terminateMeeting = async (reason = 'The host has ended the meeting for all participants.') => {
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'session-terminated',
+        payload: {
+          ended_by: user.id,
+          reason,
+        },
+      });
+    }
+
+    try {
+      await supabase
+        .from('meetings')
+        .update({ is_ended: true, ended_at: new Date().toISOString() })
+        .eq('room_code', roomCode);
+    } catch (e) {
+      console.warn('Meeting termination DB update note:', e);
+    }
+  };
 
   // User Actions: Toggle Microphone
   const toggleMute = async (forceState?: boolean) => {
@@ -522,7 +687,7 @@ export function useWebRTC({
     updatePresence({ raised_hand: nextState });
   };
 
-  // User Actions: Screen Sharing (Transmitted to all connected peers)
+  // User Actions: Screen Sharing
   const startScreenShare = async () => {
     try {
       const stream = await getDisplayMediaStream();
@@ -534,7 +699,6 @@ export function useWebRTC({
         stopScreenShare();
       };
 
-      // Hot-swap video track for all connected peers
       peerConnections.current.forEach(async (pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
         if (sender && screenTrack) {
@@ -563,7 +727,6 @@ export function useWebRTC({
     }
     setIsScreenSharing(false);
 
-    // Revert back to local webcam video track for all connected peers
     const camTrack = localStreamRef.current?.getVideoTracks()[0] || null;
     peerConnections.current.forEach(async (pc) => {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
@@ -664,6 +827,9 @@ export function useWebRTC({
     isScreenSharing,
     isHandRaised,
     participants,
+    chatMessages,
+    sendChatMessage,
+    terminateMeeting,
     isConnected,
     roomError,
     toggleMute,
